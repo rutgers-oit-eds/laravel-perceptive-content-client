@@ -16,13 +16,16 @@
     backupStaticProperties="false"
 >
     <testsuites>
-        <testsuite name="VendorName Test Suite">
+        <testsuite name="Rutgers Test Suite">
             <directory>tests</directory>
         </testsuite>
     </testsuites>
     <logging>
         <junit outputFile="build/report.junit.xml"/>
     </logging>
+    <php>
+        <env name="APP_KEY" value="base64:2fl+Ktvkfl+Ktvkfl+Ktvkfl+Ktvkfl+Ktvkfl+Ktvk="/>
+    </php>
     <source>
         <include>
             <directory suffix=".php">./src</directory>
