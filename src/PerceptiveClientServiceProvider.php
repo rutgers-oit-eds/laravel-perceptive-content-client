@@ -4,7 +4,6 @@ namespace Rutgers\PerceptiveClient;
 
 use Spatie\LaravelPackageTools\Package;
 use Spatie\LaravelPackageTools\PackageServiceProvider;
-use Rutgers\PerceptiveClient\Commands\PerceptiveClientCommand;
 
 class PerceptiveClientServiceProvider extends PackageServiceProvider
 {

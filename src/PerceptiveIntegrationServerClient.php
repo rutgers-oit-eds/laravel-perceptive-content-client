@@ -4,6 +4,7 @@ namespace Rutgers\PerceptiveClient;
 
 use Carbon\Carbon;
 use Illuminate\Http\Client\RequestException;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Cookie;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
@@ -14,7 +15,9 @@ use Rutgers\PerceptiveClient\Models\IntegrationServerCredential;
 class PerceptiveIntegrationServerClient
 {
     private $integration_server_url;
+
     private $integration_server_session_hash;
+
     private $default_department_id;
 
     public function __construct(IntegrationServerCredential $credential)
@@ -65,7 +68,7 @@ class PerceptiveIntegrationServerClient
     // Drawer Management
 
     /**
-     * @return \Illuminate\Support\Collection
+     * @return Collection
      */
     public function getDrawers()
     {
@@ -75,7 +78,6 @@ class PerceptiveIntegrationServerClient
     }
 
     /**
-     * @param $id
      * @return mixed
      */
     public function getDrawer($id)
@@ -88,7 +90,7 @@ class PerceptiveIntegrationServerClient
     // Document Type Management
 
     /**
-     * @return \Illuminate\Support\Collection
+     * @return Collection
      */
     public function getDocumentTypes()
     {
@@ -98,7 +100,6 @@ class PerceptiveIntegrationServerClient
     }
 
     /**
-     * @param $id
      * @return mixed
      */
     public function getDocumentType($id)
@@ -122,7 +123,6 @@ class PerceptiveIntegrationServerClient
     // Document Management
 
     /**
-     * @param $id
      * @return mixed
      */
     public function getDocument($id)
@@ -142,14 +142,14 @@ class PerceptiveIntegrationServerClient
                 'Accept' => 'application/json',
                 'X-IntegrationServer-Session-Hash' => $this->integration_server_session_hash,
             ])
-            ->connectTimeout(10)
-            ->asJson()
-            ->post($url, [
-                'info' => [
-                    'keys' => $this->trimKeys($this->mergeUniqueField5Key($keys)),
-                ],
-                'properties' => $this->prepareCustomProperties($keys['documentType'], $properties),
-            ]);
+                ->connectTimeout(10)
+                ->asJson()
+                ->post($url, [
+                    'info' => [
+                        'keys' => $this->trimKeys($this->mergeUniqueField5Key($keys)),
+                    ],
+                    'properties' => $this->prepareCustomProperties($keys['documentType'], $properties),
+                ]);
         } catch (RequestException $e) {
             throw new PerceptiveContentIntegrationServerException($e->getMessage(), $e->getCode());
         }
@@ -174,9 +174,9 @@ class PerceptiveIntegrationServerClient
             'X-IntegrationServer-Resource-Name' => $fileName,
             'X-IntegrationServer-Session-Hash' => $this->integration_server_session_hash,
         ])
-        ->connectTimeout(10)
-        ->withBody(Storage::get($filePath), 'application/octet-stream')
-        ->post($url);
+            ->connectTimeout(10)
+            ->withBody(Storage::get($filePath), 'application/octet-stream')
+            ->post($url);
 
         return $response->status();
     }
@@ -198,7 +198,6 @@ class PerceptiveIntegrationServerClient
     }
 
     /**
-     * @param $id
      * @return mixed
      */
     public function getWorkflowItem($id)
@@ -212,21 +211,21 @@ class PerceptiveIntegrationServerClient
     {
         $url = $this->integration_server_url.'/v1/workflowItem';
 
-        //TODO: Check to ensure WF queue exists before proceeding
+        // TODO: Check to ensure WF queue exists before proceeding
         $workflowQueue = $this->getWorkflowQueueByName($destinationQueueName);
 
         Http::withHeaders([
             'Accept' => 'application/json',
             'X-IntegrationServer-Session-Hash' => $this->integration_server_session_hash,
         ])
-        ->connectTimeout(10)
-        ->asJson()
-        ->post($url, [
-            'objectId' => $itemId,
-            'itemType' => $itemType,
-            'workflowQueueId' => $workflowQueue->id,
-            'itemPriority' => $itemPriority,
-        ]);
+            ->connectTimeout(10)
+            ->asJson()
+            ->post($url, [
+                'objectId' => $itemId,
+                'itemType' => $itemType,
+                'workflowQueueId' => $workflowQueue->id,
+                'itemPriority' => $itemPriority,
+            ]);
     }
 
     // Department Management
@@ -248,7 +247,7 @@ class PerceptiveIntegrationServerClient
     }
 
     // Execute iScript
-    public function executeiScript() //stub
+    public function executeiScript() // stub
     {
         //
     }
@@ -256,8 +255,8 @@ class PerceptiveIntegrationServerClient
     // Helper Functions
 
     /**
-     * @param int $count
-     * @return \Illuminate\Support\Collection
+     * @param  int  $count
+     * @return Collection
      */
     public function getUniqueIds($count = 1)
     {
@@ -325,7 +324,7 @@ class PerceptiveIntegrationServerClient
                     'id' => $item->id,
                     'type' => $item->type,
                     'value' => $this->prepareCustomPropertyValue($item->type, $properties->get($key)),
-                    'childProperties' => null, //TODO: Not handling composite properties yet!
+                    'childProperties' => null, // TODO: Not handling composite properties yet!
                 ];
             })->values();
     }
@@ -336,8 +335,6 @@ class PerceptiveIntegrationServerClient
      * For strings, we ensure we limit the string to the first 128 characters.
      * For all other values, no conversion is needed, so the value is returned as is.
      *
-     * @param $propertyType
-     * @param $propertyValue
      * @return mixed
      */
     private function prepareCustomPropertyValue($propertyType, $propertyValue)
