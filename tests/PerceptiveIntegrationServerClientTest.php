@@ -15,7 +15,7 @@ beforeEach(function () {
 // setRawAttributes bypasses the encrypt mutator so the password is already in stored form.
 function credential(): IntegrationServerCredential
 {
-    $credential = new IntegrationServerCredential();
+    $credential = new IntegrationServerCredential;
     $credential->setRawAttributes([
         'username' => 'testuser',
         'password' => encrypt('testpassword'),
@@ -47,8 +47,7 @@ describe('authentication', function () {
 
         new PerceptiveIntegrationServerClient(credential());
 
-        Http::assertSent(fn ($r) =>
-            str_contains($r->url(), '/v2/connection') &&
+        Http::assertSent(fn ($r) => str_contains($r->url(), '/v2/connection') &&
             $r->hasHeader('X-IntegrationServer-Username') &&
             $r->header('X-IntegrationServer-Username')[0] === 'testuser' &&
             $r->header('X-IntegrationServer-Password')[0] === 'testpassword'
@@ -66,8 +65,7 @@ describe('authentication', function () {
         $client = new PerceptiveIntegrationServerClient(credential());
         $client->getDrawers();
 
-        Http::assertSent(fn ($r) =>
-            str_contains($r->url(), '/v2/drawer') &&
+        Http::assertSent(fn ($r) => str_contains($r->url(), '/v2/drawer') &&
             $r->header('X-IntegrationServer-Session-Hash')[0] === 'new-hash-abc'
         );
     });
@@ -239,8 +237,7 @@ describe('documents', function () {
 
         expect($status)->toBe(201);
 
-        Http::assertSent(fn ($r) =>
-            str_contains($r->url(), '/v1/document/doc_123/page') &&
+        Http::assertSent(fn ($r) => str_contains($r->url(), '/v1/document/doc_123/page') &&
             $r->header('Content-Type')[0] === 'application/octet-stream' &&
             $r->header('X-IntegrationServer-Resource-Name')[0] === 'invoice.pdf'
         );
@@ -299,8 +296,7 @@ describe('workflow', function () {
 
         $client->addItemToWorkflow('doc_123', 'DOCUMENT', 'Approval Queue');
 
-        Http::assertSent(fn ($r) =>
-            str_contains($r->url(), '/v1/workflowItem') &&
+        Http::assertSent(fn ($r) => str_contains($r->url(), '/v1/workflowItem') &&
             $r->data()['objectId'] === 'doc_123' &&
             $r->data()['workflowQueueId'] === 'wq_1' &&
             $r->data()['itemPriority'] === 'MEDIUM'
