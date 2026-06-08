@@ -47,7 +47,7 @@ class PerceptiveIntegrationServerClient
         }
     }
 
-    public function destroy()
+    public function destroy(): bool
     {
         $url = $this->integration_server_url.'/v1/connection';
 
@@ -58,29 +58,16 @@ class PerceptiveIntegrationServerClient
         return true;
     }
 
-    /*
-     * PerceptiveIntegrationServerClient should return objects for calls with single results
-     * PerceptiveIntegrationServerClient should return collections of items for calls with multiple results
-     *
-     * If time, create custom objects for each call, use it to wrap dates in Carbon, clean up results, etc.
-     */
-
     // Drawer Management
 
-    /**
-     * @return Collection
-     */
-    public function getDrawers()
+    public function getDrawers(): Collection
     {
         $url = $this->integration_server_url.'/v2/drawer';
 
         return collect($this->performRequest($url)->object()->drawers);
     }
 
-    /**
-     * @return mixed
-     */
-    public function getDrawer($id)
+    public function getDrawer(string $id): object
     {
         $url = $this->integration_server_url.'/v2/drawer/'.$id;
 
@@ -89,27 +76,21 @@ class PerceptiveIntegrationServerClient
 
     // Document Type Management
 
-    /**
-     * @return Collection
-     */
-    public function getDocumentTypes()
+    public function getDocumentTypes(): Collection
     {
         $url = $this->integration_server_url.'/v1/documentType';
 
         return collect($this->performRequest($url)->object()->documentTypes);
     }
 
-    /**
-     * @return mixed
-     */
-    public function getDocumentType($id)
+    public function getDocumentType(string $id): object
     {
         $url = $this->integration_server_url.'/v1/documentType/'.$id;
 
         return $this->performRequest($url)->object();
     }
 
-    public function getDocumentTypeByName($name)
+    public function getDocumentTypeByName(string $name): ?object
     {
         $docType = $this->getDocumentTypes()->keyBy('name')->get($name);
 
@@ -122,17 +103,14 @@ class PerceptiveIntegrationServerClient
 
     // Document Management
 
-    /**
-     * @return mixed
-     */
-    public function getDocument($id)
+    public function getDocument(string $id): object
     {
         $url = $this->integration_server_url.'/v5/document/'.$id;
 
         return $this->performRequest($url)->object();
     }
 
-    public function createDocument($keys, $properties)
+    public function createDocument(array $keys, array $properties): string
     {
         $url = $this->integration_server_url.'/v3/document';
 
@@ -153,7 +131,7 @@ class PerceptiveIntegrationServerClient
         return basename(parse_url($response->header('Location'), PHP_URL_PATH));
     }
 
-    public function addPageToDocument($documentId, $filePath)
+    public function addPageToDocument(string $documentId, string $filePath): void
     {
         preg_match('/([\w.]+$)/', $filePath, $matches);
         $fileName = $matches[1];
@@ -181,31 +159,28 @@ class PerceptiveIntegrationServerClient
 
     // Workflow Management
 
-    public function getWorkflowQueues()
+    public function getWorkflowQueues(): Collection
     {
         $url = $this->integration_server_url.'/v1/workflowQueue';
 
         return collect($this->performRequest($url)->object()->workflowQueues);
     }
 
-    public function getWorkflowQueue($id)
+    public function getWorkflowQueue(string $id): object
     {
         $url = $this->integration_server_url.'/v1/workflowQueue/'.$id;
 
         return $this->performRequest($url)->object();
     }
 
-    /**
-     * @return mixed
-     */
-    public function getWorkflowItem($id)
+    public function getWorkflowItem(string $id): object
     {
         $url = $this->integration_server_url.'/v1/workflowItem/'.$id;
 
         return $this->performRequest($url)->object();
     }
 
-    public function addItemToWorkflow($itemId, $itemType, $destinationQueueName, $itemPriority = 'MEDIUM')
+    public function addItemToWorkflow(string $itemId, string $itemType, string $destinationQueueName, string $itemPriority = 'MEDIUM'): void
     {
         $url = $this->integration_server_url.'/v1/workflowItem';
 
@@ -221,7 +196,7 @@ class PerceptiveIntegrationServerClient
 
     // Department Management
 
-    public function getDepartments()
+    public function getDepartments(): Collection
     {
         $url = $this->integration_server_url.'/v1/department';
 
@@ -230,7 +205,7 @@ class PerceptiveIntegrationServerClient
 
     // User/Group Management
 
-    public function getGroups()
+    public function getGroups(): Collection
     {
         $url = $this->integration_server_url.'/v1/userGroup?departmentId='.$this->default_department_id;
 
@@ -245,11 +220,7 @@ class PerceptiveIntegrationServerClient
 
     // Helper Functions
 
-    /**
-     * @param  int  $count
-     * @return Collection
-     */
-    public function getUniqueIds($count = 1)
+    public function getUniqueIds(int $count = 1): Collection
     {
         $url = $this->integration_server_url.'/v1/uniqueId?quantity='.$count;
 
@@ -333,15 +304,8 @@ class PerceptiveIntegrationServerClient
             })->values();
     }
 
-    /**
-     * Prepares a custom property value for submission to Perceptive Content Integration Server.
-     * For dates, this involves parsing and converting the date to Unix timestamp in milliseconds.
-     * For strings, we ensure we limit the string to the first 128 characters.
-     * For all other values, no conversion is needed, so the value is returned as is.
-     *
-     * @return mixed
-     */
-    private function prepareCustomPropertyValue($propertyType, $propertyValue)
+    // Dates → Unix ms timestamp; strings → truncated to 128 chars; all others pass through.
+    private function prepareCustomPropertyValue(string $propertyType, mixed $propertyValue): mixed
     {
         switch ($propertyType) {
             case 'DATE':
