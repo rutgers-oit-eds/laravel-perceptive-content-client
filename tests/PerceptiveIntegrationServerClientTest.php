@@ -69,6 +69,17 @@ describe('authentication', function () {
             $r->header('X-IntegrationServer-Session-Hash')[0] === 'new-hash-abc'
         );
     });
+
+    it('re-throws non-401 errors from the connection check without attempting auth', function () {
+        Http::fake([
+            'https://is.example.com/v2/connection' => Http::response('', 500),
+        ]);
+
+        expect(fn () => new PerceptiveIntegrationServerClient(credential()))
+            ->toThrow(PerceptiveContentIntegrationServerException::class);
+
+        Http::assertSentCount(1);
+    });
 });
 
 // ─── Destroy ──────────────────────────────────────────────────────────────────
@@ -82,12 +93,21 @@ describe('destroy', function () {
         expect($client->destroy())->toBeTrue();
     });
 
-    it('returns false when disconnect does not return 200', function () {
+    it('returns true when disconnect returns 204', function () {
         $client = makeClient([
             'https://is.example.com/v1/connection' => Http::response('', 204),
         ]);
 
-        expect($client->destroy())->toBeFalse();
+        expect($client->destroy())->toBeTrue();
+    });
+
+    it('throws on a failed disconnect', function () {
+        $client = makeClient([
+            'https://is.example.com/v1/connection' => Http::response('', 500),
+        ]);
+
+        expect(fn () => $client->destroy())
+            ->toThrow(PerceptiveContentIntegrationServerException::class);
     });
 });
 
@@ -225,6 +245,100 @@ describe('documents', function () {
         expect($id)->toBe('doc_new_456');
     });
 
+    it('creates a document with a uuid-style id', function () {
+        $uuid = '550e8400-e29b-41d4-a716-446655440000';
+
+        $client = makeClient([
+            'https://is.example.com/v1/uniqueId*' => Http::response(['uniqueIds' => ['uid_new']]),
+            'https://is.example.com/v1/documentType' => Http::response([
+                'documentTypes' => [['id' => 'dt_1', 'name' => 'Invoice']],
+            ]),
+            'https://is.example.com/v1/documentType/dt_1' => Http::response([
+                'id' => 'dt_1',
+                'name' => 'Invoice',
+                'properties' => [],
+            ]),
+            'https://is.example.com/v3/document' => Http::response('', 201, [
+                'Location' => "https://is.example.com/v3/document/$uuid",
+            ]),
+        ]);
+
+        expect($client->createDocument(['documentType' => 'Invoice'], []))->toBe($uuid);
+    });
+
+    it('does not truncate documentType or drawer keys', function () {
+        $longName = str_repeat('A', 50);
+
+        $client = makeClient([
+            'https://is.example.com/v1/uniqueId*' => Http::response(['uniqueIds' => ['uid_new']]),
+            'https://is.example.com/v1/documentType' => Http::response([
+                'documentTypes' => [['id' => 'dt_1', 'name' => $longName]],
+            ]),
+            'https://is.example.com/v1/documentType/dt_1' => Http::response([
+                'id' => 'dt_1',
+                'name' => $longName,
+                'properties' => [],
+            ]),
+            'https://is.example.com/v3/document' => Http::response('', 201, [
+                'Location' => 'https://is.example.com/v3/document/doc_1',
+            ]),
+        ]);
+
+        $client->createDocument(['documentType' => $longName, 'drawer' => $longName], []);
+
+        Http::assertSent(function ($r) use ($longName) {
+            if (! str_contains($r->url(), '/v3/document')) {
+                return false;
+            }
+            $keys = $r->data()['info']['keys'];
+
+            return $keys['documentType'] === $longName && $keys['drawer'] === $longName;
+        });
+    });
+
+    it('truncates field1-5 values to 40 characters', function () {
+        $longValue = str_repeat('X', 50);
+
+        $client = makeClient([
+            'https://is.example.com/v1/uniqueId*' => Http::response(['uniqueIds' => ['uid_new']]),
+            'https://is.example.com/v1/documentType' => Http::response([
+                'documentTypes' => [['id' => 'dt_1', 'name' => 'Invoice']],
+            ]),
+            'https://is.example.com/v1/documentType/dt_1' => Http::response([
+                'id' => 'dt_1',
+                'name' => 'Invoice',
+                'properties' => [],
+            ]),
+            'https://is.example.com/v3/document' => Http::response('', 201, [
+                'Location' => 'https://is.example.com/v3/document/doc_1',
+            ]),
+        ]);
+
+        $client->createDocument(['documentType' => 'Invoice', 'field1' => $longValue], []);
+
+        Http::assertSent(fn ($r) => str_contains($r->url(), '/v3/document') &&
+            strlen($r->data()['info']['keys']['field1']) === 40
+        );
+    });
+
+    it('throws when document creation does not return 201', function () {
+        $client = makeClient([
+            'https://is.example.com/v1/uniqueId*' => Http::response(['uniqueIds' => ['uid_new']]),
+            'https://is.example.com/v1/documentType' => Http::response([
+                'documentTypes' => [['id' => 'dt_1', 'name' => 'Invoice']],
+            ]),
+            'https://is.example.com/v1/documentType/dt_1' => Http::response([
+                'id' => 'dt_1',
+                'name' => 'Invoice',
+                'properties' => [],
+            ]),
+            'https://is.example.com/v3/document' => Http::response('', 500),
+        ]);
+
+        expect(fn () => $client->createDocument(['documentType' => 'Invoice'], []))
+            ->toThrow(PerceptiveContentIntegrationServerException::class);
+    });
+
     it('sends file content with the correct headers when adding a page', function () {
         Storage::fake();
         Storage::put('test/invoice.pdf', 'fake-pdf-content');
@@ -233,14 +347,24 @@ describe('documents', function () {
             'https://is.example.com/v1/document/doc_123/page' => Http::response('', 201),
         ]);
 
-        $status = $client->addPageToDocument('doc_123', 'test/invoice.pdf');
-
-        expect($status)->toBe(201);
+        $client->addPageToDocument('doc_123', 'test/invoice.pdf');
 
         Http::assertSent(fn ($r) => str_contains($r->url(), '/v1/document/doc_123/page') &&
             $r->header('Content-Type')[0] === 'application/octet-stream' &&
             $r->header('X-IntegrationServer-Resource-Name')[0] === 'invoice.pdf'
         );
+    });
+
+    it('throws when adding a page fails', function () {
+        Storage::fake();
+        Storage::put('test/invoice.pdf', 'fake-pdf-content');
+
+        $client = makeClient([
+            'https://is.example.com/v1/document/doc_123/page' => Http::response('', 403),
+        ]);
+
+        expect(fn () => $client->addPageToDocument('doc_123', 'test/invoice.pdf'))
+            ->toThrow(PerceptiveContentIntegrationServerException::class);
     });
 });
 
@@ -301,6 +425,17 @@ describe('workflow', function () {
             $r->data()['workflowQueueId'] === 'wq_1' &&
             $r->data()['itemPriority'] === 'MEDIUM'
         );
+    });
+
+    it('throws when the workflow queue name does not exist', function () {
+        $client = makeClient([
+            'https://is.example.com/v1/workflowQueue' => Http::response([
+                'workflowQueues' => [['id' => 'wq_1', 'name' => 'Approval Queue']],
+            ]),
+        ]);
+
+        expect(fn () => $client->addItemToWorkflow('doc_123', 'DOCUMENT', 'Nonexistent Queue'))
+            ->toThrow(PerceptiveContentIntegrationServerException::class);
     });
 });
 
@@ -372,5 +507,26 @@ describe('error handling', function () {
 
         expect(fn () => $client->getDrawers())
             ->toThrow(PerceptiveContentIntegrationServerException::class);
+    });
+
+    it('throws PerceptiveContentIntegrationServerException on a 500 response', function () {
+        $client = makeClient([
+            'https://is.example.com/v2/drawer' => Http::response('', 500),
+        ]);
+
+        expect(fn () => $client->getDrawers())
+            ->toThrow(PerceptiveContentIntegrationServerException::class);
+    });
+
+    it('includes the http status code on the exception', function () {
+        $client = makeClient([
+            'https://is.example.com/v2/drawer' => Http::response('', 404),
+        ]);
+
+        try {
+            $client->getDrawers();
+        } catch (PerceptiveContentIntegrationServerException $e) {
+            expect($e->getCode())->toBe(404);
+        }
     });
 });

@@ -30,7 +30,11 @@ class PerceptiveIntegrationServerClient
 
         try {
             $this->performRequest($url);
-        } catch (RequestException $e) {
+        } catch (PerceptiveContentIntegrationServerException $e) {
+            if ($e->getCode() !== 401) {
+                throw $e;
+            }
+
             $response = $this->performRequest($url, 'GET', [
                 'X-IntegrationServer-Username' => $credential->username,
                 'X-IntegrationServer-Password' => decrypt($credential->password),
@@ -47,15 +51,11 @@ class PerceptiveIntegrationServerClient
     {
         $url = $this->integration_server_url.'/v1/connection';
 
-        $response = $this->performRequest($url, 'DELETE');
+        $this->performRequest($url, 'DELETE');
 
-        if ($response->status() == 200) {
-            Cookie::queue(Cookie::forget('pc_session_hash'));
+        Cookie::queue(Cookie::forget('pc_session_hash'));
 
-            return true;
-        } else {
-            return false;
-        }
+        return true;
     }
 
     /*
@@ -136,30 +136,21 @@ class PerceptiveIntegrationServerClient
     {
         $url = $this->integration_server_url.'/v3/document';
 
-        // TODO: Wrap some kind of transaction around this to avoid job retry creating duplicate documents?
-        try {
-            $response = Http::withHeaders([
-                'Accept' => 'application/json',
-                'X-IntegrationServer-Session-Hash' => $this->integration_server_session_hash,
-            ])
-                ->connectTimeout(10)
-                ->asJson()
-                ->post($url, [
-                    'info' => [
-                        'keys' => $this->trimKeys($this->mergeUniqueField5Key($keys)),
-                    ],
-                    'properties' => $this->prepareCustomProperties($keys['documentType'], $properties),
-                ]);
-        } catch (RequestException $e) {
-            throw new PerceptiveContentIntegrationServerException($e->getMessage(), $e->getCode());
+        $response = $this->performRequest($url, 'POST', [], [
+            'info' => [
+                'keys' => $this->trimKeys($this->mergeUniqueField5Key($keys)),
+            ],
+            'properties' => $this->prepareCustomProperties($keys['documentType'], $properties),
+        ]);
+
+        if ($response->status() !== 201) {
+            throw new PerceptiveContentIntegrationServerException(
+                "Expected 201 from document creation but got {$response->status()}",
+                $response->status()
+            );
         }
 
-        if ($response->status() === 201) {
-            $newDocumentUri = $response->header('Location');
-            preg_match('/\/([\w_]+$)/', $newDocumentUri, $matches);
-
-            return $matches[1];
-        }
+        return basename(parse_url($response->header('Location'), PHP_URL_PATH));
     }
 
     public function addPageToDocument($documentId, $filePath)
@@ -169,16 +160,23 @@ class PerceptiveIntegrationServerClient
 
         $url = $this->integration_server_url."/v1/document/$documentId/page";
 
-        $response = Http::withHeaders([
-            'Accept' => 'application/json',
-            'X-IntegrationServer-Resource-Name' => $fileName,
-            'X-IntegrationServer-Session-Hash' => $this->integration_server_session_hash,
-        ])
-            ->connectTimeout(10)
-            ->withBody(Storage::get($filePath), 'application/octet-stream')
-            ->post($url);
-
-        return $response->status();
+        try {
+            Http::withHeaders([
+                'Accept' => 'application/json',
+                'X-IntegrationServer-Resource-Name' => $fileName,
+                'X-IntegrationServer-Session-Hash' => $this->integration_server_session_hash,
+            ])
+                ->connectTimeout(10)
+                ->withBody(Storage::get($filePath), 'application/octet-stream')
+                ->post($url)
+                ->throw();
+        } catch (RequestException $e) {
+            throw new PerceptiveContentIntegrationServerException(
+                "HTTP {$e->response->status()}: {$e->getMessage()}",
+                $e->response->status(),
+                $e
+            );
+        }
     }
 
     // Workflow Management
@@ -211,21 +209,14 @@ class PerceptiveIntegrationServerClient
     {
         $url = $this->integration_server_url.'/v1/workflowItem';
 
-        // TODO: Check to ensure WF queue exists before proceeding
         $workflowQueue = $this->getWorkflowQueueByName($destinationQueueName);
 
-        Http::withHeaders([
-            'Accept' => 'application/json',
-            'X-IntegrationServer-Session-Hash' => $this->integration_server_session_hash,
-        ])
-            ->connectTimeout(10)
-            ->asJson()
-            ->post($url, [
-                'objectId' => $itemId,
-                'itemType' => $itemType,
-                'workflowQueueId' => $workflowQueue->id,
-                'itemPriority' => $itemPriority,
-            ]);
+        $this->performRequest($url, 'POST', [], [
+            'objectId' => $itemId,
+            'itemType' => $itemType,
+            'workflowQueueId' => $workflowQueue->id,
+            'itemPriority' => $itemPriority,
+        ]);
     }
 
     // Department Management
@@ -265,7 +256,7 @@ class PerceptiveIntegrationServerClient
         return collect($this->performRequest($url)->object()->uniqueIds);
     }
 
-    private function performRequest($url, $method = 'GET', $headers = [])
+    private function performRequest($url, $method = 'GET', $headers = [], $body = null)
     {
         $headers = array_merge([
             'Accept' => 'application/json',
@@ -273,34 +264,47 @@ class PerceptiveIntegrationServerClient
         ], $headers);
 
         try {
-            return Http::withHeaders($headers)
-                ->connectTimeout(10)
-                ->send($method, $url)
-                ->throw();
-        } catch (RequestException $e) {
-            if ($e->response->status() === 403) {
-                throw new PerceptiveContentIntegrationServerException('403 Forbidden', 403);
+            $request = Http::withHeaders($headers)->connectTimeout(10);
+
+            if ($body !== null) {
+                $request = $request->asJson();
             }
-            throw $e;
+
+            $options = $body !== null ? ['json' => $body] : [];
+
+            return $request->send($method, $url, $options)->throw();
+        } catch (RequestException $e) {
+            throw new PerceptiveContentIntegrationServerException(
+                "HTTP {$e->response->status()}: {$e->getMessage()}",
+                $e->response->status(),
+                $e
+            );
         }
     }
 
     private function getWorkflowQueueByName($queueName)
     {
-        // TODO: Catch when a queue doesn't exist! Add error handling here, and above where this is called
-        return $this->getWorkflowQueue(
-            $this->getWorkflowQueues()
-                ->keyBy('name')
-                ->get($queueName)
-                ->id
-        );
+        $queue = $this->getWorkflowQueues()->keyBy('name')->get($queueName);
+
+        if ($queue === null) {
+            throw new PerceptiveContentIntegrationServerException(
+                "Workflow queue '$queueName' not found",
+                404
+            );
+        }
+
+        return $this->getWorkflowQueue($queue->id);
     }
 
     private function trimKeys($keys)
     {
-        return array_map(function ($item) {
-            return substr($item, 0, 40);
-        }, $keys);
+        foreach (['field1', 'field2', 'field3', 'field4', 'field5'] as $field) {
+            if (isset($keys[$field])) {
+                $keys[$field] = substr($keys[$field], 0, 40);
+            }
+        }
+
+        return $keys;
     }
 
     private function mergeUniqueField5Key($keys)
